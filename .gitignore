@@ -1,7 +1,25 @@
+# Virtual environment
+.venv/
+venv/
+
+# Private config
+.env*
+*.pem
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+
 # OS and IDE files
 .DS_Store
-*.pem
-*.env
 .vscode/
 .idea/
 
