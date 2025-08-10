@@ -14,6 +14,10 @@ __pycache__/
 
 # Cache
 .cache/
+.cache-test/
 
 # Data files
 data/
+
+# Test files
+test_codes/

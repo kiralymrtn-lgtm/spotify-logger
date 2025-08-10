@@ -27,7 +27,7 @@ sp = spotipy.Spotify(
         client_secret=CLIENT_SECRET,
         redirect_uri=REDIRECT_URI,
         scope=SCOPE,
-        cache_path=".cache-test"
+        cache_path="../.cache-test"
     )
 )
 
