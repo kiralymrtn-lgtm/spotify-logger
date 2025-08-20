@@ -12,10 +12,10 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
 pd.set_option('display.max_colwidth', None)
 
-print("🎵 Spotify Adatok Lekérdezése")
+print("🎵 Fetching Spotify Data")
 print("=" * 50)
 
-# 0) Környezet
+# 0) Environment
 load_dotenv()
 CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
 CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
@@ -23,28 +23,28 @@ REDIRECT_URI = os.getenv('SPOTIFY_REDIRECT_URI')
 SCOPE = "user-read-recently-played user-read-private user-top-read"
 
 if not all([CLIENT_ID, CLIENT_SECRET, REDIRECT_URI]):
-    raise RuntimeError("Hiányzó SPOTIFY_* környezeti változók (.env)!")
+    raise RuntimeError("Missing SPOTIFY_* environment variables (.env)!")
 
-# 1) Spotify kliens (headless környezetre optimalizálva)
+# 1) Spotify client (headless-friendly)
 sp = spotipy.Spotify(
     auth_manager=SpotifyOAuth(
         client_id=CLIENT_ID,
         client_secret=CLIENT_SECRET,
         redirect_uri=REDIRECT_URI,
         scope=SCOPE,
-        cache_path=".cache-ec2",        # külön cache a szerveren
-        open_browser=False              # ne próbáljon böngészőt nyitni
+        cache_path=".cache-ec2",        # separate cache on server
+        open_browser=False              # don't try to open a browser
     )
 )
-print("✅ Spotify kapcsolat létrehozva")
+print("✅ Spotify client initialized")
 
-# 2) SQLite – tároló
+# 2) SQLite – database
 DB_PATH = "spotify.db"
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    # Egyedi kulcs: played_at + track_id → nincs duplikáció
+    # Unique key: played_at + track_id → avoid duplicates
     cur.execute("""
         CREATE TABLE IF NOT EXISTS plays (
             played_at TEXT NOT NULL,
@@ -69,7 +69,7 @@ def ensure_schema():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # plays tábla – új oszlopok felvétele, ha hiányoznak
+    # plays table – add new columns if missing
     wanted_cols = [
         ("explicit", "INTEGER"),
         ("track_number", "INTEGER"),
@@ -82,7 +82,7 @@ def ensure_schema():
         ("context_url", "TEXT"),
     ]
 
-    # meglévő oszlopok lekérdezése
+    # fetch existing columns
     cur.execute("PRAGMA table_info(plays);")
     existing = {row[1] for row in cur.fetchall()}
 
@@ -91,9 +91,9 @@ def ensure_schema():
             try:
                 cur.execute(f"ALTER TABLE plays ADD COLUMN {col} {ctype};")
             except Exception:
-                pass  # ha már létezik, vagy régebbi SQLite sajátosság – átugorjuk
+                pass  # if it already exists or due to SQLite quirks — skip
 
-    # mapping tábla: track_artists (track_id, artist_id, artist_name)
+    # mapping table: track_artists (track_id, artist_id, artist_name)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS track_artists (
             track_id   TEXT NOT NULL,
@@ -103,7 +103,7 @@ def ensure_schema():
         );
     """)
 
-    # artists dim tábla
+    # artists dim table
     cur.execute("""
         CREATE TABLE IF NOT EXISTS artists (
             artist_id TEXT PRIMARY KEY,
@@ -123,8 +123,7 @@ def ensure_schema():
 
 # --- Artist enrichment helpers ---
 def get_missing_artist_ids():
-    """Visszaadja azokat az artist_id-kat, amelyek szerepelnek a track_artists táblában,
-    de még nincsenek az artists dimenzió táblában."""
+    """Return artist_ids that appear in track_artists but are missing from the artists dimension table."""
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("""
@@ -138,12 +137,12 @@ def get_missing_artist_ids():
     return ids
 
 def chunked(seq, size):
-    """Egyszerű szeletelő: listát size-os csomagokra bont."""
+    """Simple chunker: split a sequence into chunks of size N."""
     for i in range(0, len(seq), size):
         yield seq[i:i + size]
 
 def enrich_artists(sp):
-    """Betölti az artists táblát a track_artists-ból kigyűjtött hiányzó artist_id-k alapján."""
+    """Populate the artists dimension table for missing artist_ids found in track_artists."""
     ids = get_missing_artist_ids()
     if not ids:
         return 0
@@ -152,7 +151,7 @@ def enrich_artists(sp):
     cur = conn.cursor()
     inserted = 0
 
-    for chunk in chunked(ids, 50):  # Spotify artists() max 50 ID egyszerre
+    for chunk in chunked(ids, 50):  # Spotify artists() max 50 ID in one go
         try:
             resp = sp.artists(chunk) or {}
             for a in (resp.get("artists") or []):
@@ -176,11 +175,11 @@ def enrich_artists(sp):
                     if cur.rowcount == 1:
                         inserted += 1
                 except Exception:
-                    # bármelyik rekordnál fellépő hiba esetén lépjünk tovább a többire
+                    # on per-record error, skip and continue
                     pass
             conn.commit()
         except Exception:
-            # híváshiba esetén lépjünk tovább a következő csomagra
+            # on request error, continue with next chunk
             continue
 
     conn.close()
@@ -240,13 +239,13 @@ def pick_cover_300(images):
     for img in images:
         if img.get("height") == 300:
             return img.get("url")
-    # ha nincs 300-as, vegyük a legközelebbit
+    # if no 300px image, fall back to the first
     return images[0].get("url")
 
 def fetch_recent_paginated(sp, limit=50, max_loops=10):
-    """ Lekéri az utóbbi ~24h lejátszásait paginálva. """
+    """ Fetch recently played tracks in pages (approx last 24h per run). """
     all_items = []
-    before = int(time.time() * 1000)  # most (ms)
+    before = int(time.time() * 1000)  # now (ms)
 
     for _ in range(max_loops):
         res = sp.current_user_recently_played(limit=limit, before=before)
@@ -254,7 +253,7 @@ def fetch_recent_paginated(sp, limit=50, max_loops=10):
         if not items:
             break
         all_items.extend(items)
-        # állítsuk a before-t a legrégebbi lejátszás időpontjára - 1ms
+        # set 'before' to the oldest play timestamp minus 1ms
         oldest = items[-1]["played_at"]
         before = to_ms(oldest) - 1
 
@@ -269,7 +268,7 @@ def normalize_items(items):
         ctx = it.get("context") or {}
 
         rows.append({
-            # kulcsok a plays táblához
+            # keys for plays table
             "played_at":  it["played_at"],
             "track_id":   tr["id"],
             "track_name": tr["name"],
@@ -283,7 +282,7 @@ def normalize_items(items):
             "cover_url": pick_cover_300(al.get("images")),
             "track_href": tr.get("href"),
 
-            # ÚJ: bővített mezők
+            # extended fields
             "explicit": 1 if tr.get("explicit") else 0,
             "track_number": tr.get("track_number"),
             "disc_number": tr.get("disc_number"),
@@ -291,42 +290,42 @@ def normalize_items(items):
             "isrc": tr.get("external_ids", {}).get("isrc"),
             "available_markets_count": len(tr.get("available_markets") or []),
 
-            # context (lehet None)
+            # context (may be None)
             "context_type": ctx.get("type"),
             "context_uri": ctx.get("uri"),
             "context_url": (ctx.get("external_urls") or {}).get("spotify"),
 
-            # előadók a mapping táblához
+            # artists for mapping table
             "artist_ids": [a.get("id") for a in artists if a.get("id")],
             "artist_names_list": [a.get("name") for a in artists if a.get("name")],
         })
     return rows
 
-# ---- futtatás ----
+# ---- run ----
 init_db()
 ensure_schema()
 
-print("\n📥 Lekérdezés (paginálva)...")
+print("\n📥 Fetching (paginated)...")
 items = fetch_recent_paginated(sp, limit=50, max_loops=10)
-print(f"🔁 API-ból hozott sorok: {len(items)}")
+print(f"🔁 Retrieved items from API: {len(items)}")
 
 rows = normalize_items(items)
 inserted = save_batch(rows)
-print(f"💾 Adatbázisba mentve (új): {inserted} sor")
+print(f"💾 Inserted into DB (new): {inserted} rows")
 new_artists = enrich_artists(sp)
-print(f"👤 Artists táblába mentve (új): {new_artists} sor")
+print(f"👤 Inserted into artists dim (new): {new_artists} rows")
 
-# Opcionális: gyors ellenőrző riport
+# Optional: quick validation summary
 if rows:
     df = pd.DataFrame(rows)
-    print("\n📊 Gyors riport az aktuális lekérésből:")
-    print(f" - Utolsó lejátszás időpontja: {df['played_at'].max()}")
-    print(f" - Első lejátszás időpontja: {df['played_at'].min()}")
-    print(f" - Egyedi trackek száma: {df['track_id'].nunique()}")
-    print(f" - Egyedi előadók száma: {df['artist_name'].nunique()}")
-    print("\n - Utolsó 10 dal (időrendi sorrendben):")
+    print("\n📊 Quick summary of the current fetch:")
+    print(f" - Most recent play at: {df['played_at'].max()}")
+    print(f" - Oldest play in this batch: {df['played_at'].min()}")
+    print(f" - Unique tracks: {df['track_id'].nunique()}")
+    print(f" - Unique artists: {df['artist_name'].nunique()}")
+    print("\n - Last 10 plays (chronological):")
     last_10 = df.sort_values('played_at').tail(10)
     for _, row in last_10.iterrows():
         print(f"   * {row['track_name']} - {row['artist_name']}")
 
-print("\n🎉 Kész. A teljes történet a spotify.db -> plays táblában épül.")
+print("\n🎉 Done. The full history is being accumulated in spotify.db -> plays table.")
