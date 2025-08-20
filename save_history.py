@@ -44,7 +44,6 @@ DB_PATH = "spotify.db"
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    # Unique key: played_at + track_id → avoid duplicates
     cur.execute("""
         CREATE TABLE IF NOT EXISTS plays (
             played_at TEXT NOT NULL,
@@ -59,7 +58,44 @@ def init_db():
             spotify_url TEXT,
             cover_url TEXT,
             track_href TEXT,
+
+            -- extended fields
+            explicit INTEGER,
+            track_number INTEGER,
+            disc_number INTEGER,
+            is_local INTEGER,
+            isrc TEXT,
+            available_markets_count INTEGER,
+            context_type TEXT,
+            context_uri TEXT,
+            context_url TEXT,
+
+            created_at TEXT DEFAULT (datetime('now')),
             PRIMARY KEY (played_at, track_id)
+        );
+    """)
+    # mapping
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS track_artists (
+            track_id   TEXT NOT NULL,
+            artist_id  TEXT NOT NULL,
+            artist_name TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (track_id, artist_id)
+        );
+    """)
+    # dimension
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS artists (
+            artist_id TEXT PRIMARY KEY,
+            name TEXT,
+            genres TEXT,
+            followers_total INTEGER,
+            popularity INTEGER,
+            url TEXT,
+            href TEXT,
+            image_url TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
         );
     """)
     conn.commit()
@@ -69,10 +105,8 @@ def ensure_schema():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # plays tábla oszlopok bővítése (… a már meglévő részek maradnak)
     cur.execute("PRAGMA table_info(plays);")
     existing = {row[1] for row in cur.fetchall()}
-
 
     wanted_cols = {
         "explicit": "INTEGER",
@@ -86,39 +120,22 @@ def ensure_schema():
         "context_url": "TEXT",
         "created_at": "TEXT DEFAULT (datetime('now'))"
     }
-
     for col, col_type in wanted_cols.items():
         if col not in existing:
-            try:
-                cur.execute(f"ALTER TABLE plays ADD COLUMN {col} {col_type};")
-            except Exception:
-                pass
+            cur.execute(f"ALTER TABLE plays ADD COLUMN {col} {col_type};")
 
-    # created_at a plays táblában
-    if "created_at" not in existing:
-        try:
-            cur.execute("ALTER TABLE plays ADD COLUMN created_at TEXT DEFAULT (datetime('now'));")
-        except Exception:
-            pass
-
-    # track_artists tábla létrehozása ha nincs (már benne van), majd created_at
+    # track_artists
     cur.execute("""
         CREATE TABLE IF NOT EXISTS track_artists (
             track_id   TEXT NOT NULL,
             artist_id  TEXT NOT NULL,
             artist_name TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
             PRIMARY KEY (track_id, artist_id)
         );
     """)
-    cur.execute("PRAGMA table_info(track_artists);")
-    ta_existing = {row[1] for row in cur.fetchall()}
-    if "created_at" not in ta_existing:
-        try:
-            cur.execute("ALTER TABLE track_artists ADD COLUMN created_at TEXT DEFAULT (datetime('now'));")
-        except Exception:
-            pass
 
-    # artists dim tábla létrehozása ha nincs (már benne van), majd created_at
+    # artists
     cur.execute("""
         CREATE TABLE IF NOT EXISTS artists (
             artist_id TEXT PRIMARY KEY,
@@ -128,16 +145,10 @@ def ensure_schema():
             popularity INTEGER,
             url TEXT,
             href TEXT,
-            image_url TEXT
+            image_url TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
         );
     """)
-    cur.execute("PRAGMA table_info(artists);")
-    a_existing = {row[1] for row in cur.fetchall()}
-    if "created_at" not in a_existing:
-        try:
-            cur.execute("ALTER TABLE artists ADD COLUMN created_at TEXT DEFAULT (datetime('now'));")
-        except Exception:
-            pass
 
     conn.commit()
     conn.close()
