@@ -1,5 +1,4 @@
 import spotipy
-from pandas.core.computation.common import result_type_many
 from spotipy.oauth2 import SpotifyOAuth
 import pandas as pd
 pd.set_option('display.max_columns', None) # Minden oszlop látszódjon

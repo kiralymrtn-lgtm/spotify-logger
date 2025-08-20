@@ -37,6 +37,7 @@ __pycache__/
 
 # Data files
 data/
+.db
 
 # Test files
 test_codes/
