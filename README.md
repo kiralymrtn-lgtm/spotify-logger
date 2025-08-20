@@ -3,7 +3,7 @@
 A simple Python project that fetches recently played tracks from the Spotify Web API, stores them in a local SQLite database, and enriches the data with artist information.
 
 ## Features
-- Fetches recently played tracks (up to 500 per run, paginated).
+- Fetches recently played tracks (up to 50 per run, paginated).
 - Saves play history into `spotify.db` (`plays` table).
 - Creates mapping of tracks and artists (`track_artists` table).
 - Enriches artist data (`artists` table) with genres, followers, popularity, and images.

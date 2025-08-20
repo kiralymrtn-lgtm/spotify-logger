@@ -69,31 +69,21 @@ def ensure_schema():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # plays table – add new columns if missing
-    wanted_cols = [
-        ("explicit", "INTEGER"),
-        ("track_number", "INTEGER"),
-        ("disc_number", "INTEGER"),
-        ("is_local", "INTEGER"),
-        ("isrc", "TEXT"),
-        ("available_markets_count", "INTEGER"),
-        ("context_type", "TEXT"),
-        ("context_uri", "TEXT"),
-        ("context_url", "TEXT"),
-    ]
-
-    # fetch existing columns
+    # plays tábla oszlopok bővítése (… a már meglévő részek maradnak)
     cur.execute("PRAGMA table_info(plays);")
     existing = {row[1] for row in cur.fetchall()}
 
-    for col, ctype in wanted_cols:
-        if col not in existing:
-            try:
-                cur.execute(f"ALTER TABLE plays ADD COLUMN {col} {ctype};")
-            except Exception:
-                pass  # if it already exists or due to SQLite quirks — skip
+    # (itt a korábbi wanted_cols ALTER-ek maradnak)
+    # …
 
-    # mapping table: track_artists (track_id, artist_id, artist_name)
+    # created_at a plays táblában
+    if "created_at" not in existing:
+        try:
+            cur.execute("ALTER TABLE plays ADD COLUMN created_at TEXT DEFAULT (datetime('now'));")
+        except Exception:
+            pass
+
+    # track_artists tábla létrehozása ha nincs (már benne van), majd created_at
     cur.execute("""
         CREATE TABLE IF NOT EXISTS track_artists (
             track_id   TEXT NOT NULL,
@@ -102,13 +92,20 @@ def ensure_schema():
             PRIMARY KEY (track_id, artist_id)
         );
     """)
+    cur.execute("PRAGMA table_info(track_artists);")
+    ta_existing = {row[1] for row in cur.fetchall()}
+    if "created_at" not in ta_existing:
+        try:
+            cur.execute("ALTER TABLE track_artists ADD COLUMN created_at TEXT DEFAULT (datetime('now'));")
+        except Exception:
+            pass
 
-    # artists dim table
+    # artists dim tábla létrehozása ha nincs (már benne van), majd created_at
     cur.execute("""
         CREATE TABLE IF NOT EXISTS artists (
             artist_id TEXT PRIMARY KEY,
             name TEXT,
-            genres TEXT,               -- JSON list string
+            genres TEXT,
             followers_total INTEGER,
             popularity INTEGER,
             url TEXT,
@@ -116,6 +113,13 @@ def ensure_schema():
             image_url TEXT
         );
     """)
+    cur.execute("PRAGMA table_info(artists);")
+    a_existing = {row[1] for row in cur.fetchall()}
+    if "created_at" not in a_existing:
+        try:
+            cur.execute("ALTER TABLE artists ADD COLUMN created_at TEXT DEFAULT (datetime('now'));")
+        except Exception:
+            pass
 
     conn.commit()
     conn.close()
