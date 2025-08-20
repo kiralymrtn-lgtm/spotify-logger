@@ -73,8 +73,26 @@ def ensure_schema():
     cur.execute("PRAGMA table_info(plays);")
     existing = {row[1] for row in cur.fetchall()}
 
-    # (itt a korábbi wanted_cols ALTER-ek maradnak)
-    # …
+
+    wanted_cols = {
+        "explicit": "INTEGER",
+        "track_number": "INTEGER",
+        "disc_number": "INTEGER",
+        "is_local": "INTEGER",
+        "isrc": "TEXT",
+        "available_markets_count": "INTEGER",
+        "context_type": "TEXT",
+        "context_uri": "TEXT",
+        "context_url": "TEXT",
+        "created_at": "TEXT DEFAULT (datetime('now'))"
+    }
+
+    for col, col_type in wanted_cols.items():
+        if col not in existing:
+            try:
+                cur.execute(f"ALTER TABLE plays ADD COLUMN {col} {col_type};")
+            except Exception:
+                pass
 
     # created_at a plays táblában
     if "created_at" not in existing:
