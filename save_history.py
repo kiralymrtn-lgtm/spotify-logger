@@ -356,9 +356,5 @@ if rows:
     print(f" - Oldest play in this batch: {df['played_at'].min()}")
     print(f" - Unique tracks: {df['track_id'].nunique()}")
     print(f" - Unique artists: {df['artist_name'].nunique()}")
-    print("\n - Last 10 plays (chronological):")
-    last_10 = df.sort_values('played_at').tail(10)
-    for _, row in last_10.iterrows():
-        print(f"   * {row['track_name']} - {row['artist_name']}")
 
 print("\n🎉 Done. The full history is being accumulated in spotify.db -> plays table.")
